@@ -146,3 +146,39 @@ Condicion -> Expresion Rel_op Expresion
 | ( Condicion )
 | true
 | false
+
+## Implemantación y uso
+Se incluye en el proyecto un pequeño archivo en bash para hacer más ameno el proceso de compilación.
+También se incluye el programa `ctd` que es un intérprete de código intermedio para poder comprobar la salida del programa.
+
+Bastaría con ejecutarlo de la siguiente forma:
+```bash
+   ./comp.sh
+```
+Si se desea hacer manualmente, los comandos serían los siguientes:
+
+1. Ejecutar JFlex:
+
+```bash
+jflex PLXC.flex
+```
+2. Ejecutar CUP:
+
+```bash
+cup PLXC.cup
+```
+
+3. Compilar los archivos Java resultantes:
+
+```bash
+javac *.java
+```
+4. Compilar y ejecutar el programa:
+```bash
+java PLXC prog.plx prog.ctd
+./ctd prog.ctd
+```
+Si alguno de los ficheros no tiene permisos de ejecución se le puede asignar de forma muy sencilla utilizando "chmod"
+```bash
+chmod +x archivo.a
+```
