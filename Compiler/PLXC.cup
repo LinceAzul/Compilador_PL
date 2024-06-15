@@ -1,0 +1,1449 @@
+// Codigo en CUP del compilador del lenguaje PLX
+import java_cup.runtime.*;
+import java.util.*;
+
+/* Action code */
+action code {:
+	// Variables globales
+	private int temp = 0;			// Variables temporales
+	private int etiq = 0;			// Etiquetas para saltos
+	private boolean isCasting = false; // Estoy haciendo un casting?
+
+	// Tabla de símbolos
+	// Formato: Variable -> (tipo, valor)
+
+	// Objeto que contendrá todos los arrays
+	// private Arr arrays = new Arr();
+
+	// Auxiliar para contener el tipo actual
+	private String tipoAux;
+
+	// Auxiliar para contener una expresion de forma temporal
+	private String expAux;
+	private String varAux;
+
+	private boolean isCondicion = false;
+
+	// Auxiliar para contener una variable para su posterior uso (e.g. asignación de x = {1.0, 2.0, ...} para entrar así a x[0], x[1], ...)
+	private String varArrayAux;
+	private List<String> arrayAux = new ArrayList<>();
+
+	// ****************************************************************************************************
+	// 		************************* Generadores de referencias *************************
+	// ****************************************************************************************************
+
+	/* Genera una variable temporal con la estructura '$tX' siendo X un número entero */
+	private String crearTemporal(){
+		return "$t" + (temp++);
+	}
+	
+	/* Genera una etiqueta con la estructura 'EX' siendo X un número entero */
+	private String crearEtiqueta(){
+		return "L" + (etiq++);
+	}
+
+	// ****************************************************************************************************
+	// 		*********************** Generadores de código intermedio (.ctd) **********************
+	//(Basado en las 'versiones compiladas' del profe). e.g. -> plc a0.pl -> print 0;
+	// ****************************************************************************************************
+
+	// Referencias
+	public void variable(String variable, String valor){
+		if(valor.contains(" ")){
+			int indiceEspacio = valor.indexOf(" ");
+
+			String variableArr = valor.substring(0, indiceEspacio);
+			String indiceArray = valor.substring(indiceEspacio+1);
+			System.out.println("\t" + variable + " = " + variableArr + "[" + indiceArray + "];");
+		}
+		else{
+			System.out.println("\t" + variable + " = " + valor + ";");
+		}
+	}
+
+	public void variableArray(String variable, String longitud, String valor){
+		if(isChar(valor)){
+			System.out.println("\t" + variable +"["+ longitud + "] = " + (int) valor.charAt(1) + ";");
+		}
+		else 
+		{ 
+			System.out.println("\t" + variable +"["+ longitud + "] = " + valor + ";");
+		}
+	}
+
+	public void variablec(String variable, String caracter){				// a = '&' (ese & debe ser 38)
+		System.out.println("\t" + variable + " = " + (int) caracter.charAt(1) + ";");
+	}
+
+	public void etiqueta(String etiqueta){
+		System.out.println(etiqueta + ":");
+	}
+
+	public void salto(String etiqueta){
+		System.out.println("\tgoto "+ etiqueta+";");
+	}
+
+	// *************************************************************************************
+	// 				-------------------- Control de errores --------------------
+	// *************************************************************************************
+
+	// La variable pasada como parámetro no ha sido declarada (intento usar algo que no existe)
+	public void error_no_declarado(String x){
+		System.out.println("ERROR: Variable \'"+x+"\' no declarada");
+		System.out.println("\terror;");
+		System.out.println("\thalt;");
+
+		TablaSimbolos.printTabla();
+		System.exit(0);
+	}
+
+	// La variable pasada como parámetro YA fue declarada (estoy re-declarando una variable: e.g. int x,y,x)
+	public void error_ya_declarado(String x){
+		System.out.println("ERROR: Variable \'"+x+"\' ya fue declarada");
+		System.out.println("\terror;");
+		System.out.println("\thalt;");
+
+		TablaSimbolos.printTabla();
+		System.exit(0);
+	}
+
+	// Error de tipos
+	public void error_de_tipos(String var1, String var2){
+		if(!TablaSimbolos.contieneArray(var1)){
+			System.out.println("ERROR: Error de tipos: "+var2 +" no es de tipo "+TablaSimbolos.getTipo(var1));
+		}
+		else System.out.println("ERROR: Error de tipos: "+var2 +" no es de tipo "+TablaSimbolos.getTipoArray(var1));
+		
+		System.out.println("\terror;");
+		System.out.println("\thalt;");
+
+		TablaSimbolos.printTabla();
+		System.exit(0);
+	}
+
+	public void error_de_dimensiones_arrayAux(String v, List<String> arrayAux) {
+		System.out.println("ERROR: Error de dimensiones: en "+ v + "[" + TablaSimbolos.getLongitudArray(v) + "] NO pueden entrar " + arrayAux.size() + " elementos");
+		
+		System.out.println("\terror;");
+		System.out.println("\thalt;");
+		System.exit(0);
+	}
+
+	public void error_de_dimensiones(String v1, String v2){
+		if(TablaSimbolos.contieneArray(v2)){
+			System.out.println("ERROR: Error de dimensiones: en "+ v1 + "[" + TablaSimbolos.getLongitudArray(v1) + "] NO pueden entrar " + TablaSimbolos.getLongitudArray(v2) + " elementos");
+		}
+		System.out.println("\terror;");
+		System.out.println("\thalt;");
+		System.exit(0);
+	}
+
+	// *************************************************************************************
+	// 			-------------------- Operadores matemáticos --------------------
+	// *************************************************************************************
+	public void suma(String variable, String a, String b){
+		if(isFloat(a) || isFloat(b)){
+			TablaSimbolos.insertarVariable(variable, "float", null);
+			System.out.println("\t" + variable + " = " + a + " +r " + b + ";");
+		}
+		else if(isArray(a) || isArray(b)){
+			if(isArray(a)){
+				if(TablaSimbolos.getVariable(a) != null){
+					a = TablaSimbolos.getVariable(a);
+				}
+				else System.out.println("CHECK_ERROR: No encuentro en la TablaSimbolos una variable que contenga el valor: "+a);
+			}
+			if(isArray(b)){
+				if(TablaSimbolos.getVariable(b) != null){
+					b = TablaSimbolos.getVariable(b);
+				}
+				else System.out.println("CHECK_ERROR: No encuentro en la TablaSimbolos una variable que contenga el valor: "+b);
+			}
+			TablaSimbolos.insertarVariable(variable, "int", null);
+			System.out.println("\t" + variable + " = " + a + " + " + b + ";");
+		}
+		else {
+			//int suma = Integer.parseInt(a) + Integer.parseInt(b);								// **** Tendré que replicar esto con el resto de operaciones y tipos???
+			TablaSimbolos.insertarVariable(variable, "int", null);
+			System.out.println("\t" + variable + " = " + a + " + " + b + ";");
+		}
+		tipoAux = TablaSimbolos.getTipo(variable);
+
+	}
+
+	public void resta(String variable, String a, String b){
+		if(isFloat(a) || isFloat(b)){
+			TablaSimbolos.insertarVariable(variable, "float", null);
+			System.out.println("\t" + variable + " = " + a + " -r " + b + ";");
+		}
+		else if(isArray(a) || isArray(b)){
+			if(isArray(a)){
+				if(TablaSimbolos.getVariable(a) != null){
+					a = TablaSimbolos.getVariable(a);
+				}
+				else System.out.println("CHECK_ERROR: No encuentro en la TablaSimbolos una variable que contenga el valor: "+a);
+			}
+			if(isArray(b)){
+				if(TablaSimbolos.getVariable(b) != null){
+					b = TablaSimbolos.getVariable(b);
+				}
+				else System.out.println("CHECK_ERROR: No encuentro en la TablaSimbolos una variable que contenga el valor: "+b);
+			}
+			TablaSimbolos.insertarVariable(variable, "int", null);
+			System.out.println("\t" + variable + " = " + a + " - " + b + ";");
+		}
+			
+		else {
+			TablaSimbolos.insertarVariable(variable, "int", null);
+			System.out.println("\t" + variable + " = " + a + " - " + b + ";");
+		}
+		tipoAux = TablaSimbolos.getTipo(variable);
+
+	}
+
+	public void multiplicacion(String variable, String a, String b){
+		//System.out.println("******* Entre en la multiplicación con la variable, a, b: "+ variable + ", "+ a + ", " + b);
+
+		if(isFloat(a) || isFloat(b)){
+			TablaSimbolos.insertarVariable(variable, "float", null);
+			System.out.println("\t" + variable + " = " + a + " *r " + b + ";");
+		}
+
+		else if(isArray(a) || isArray(b)){
+			if(isArray(a)){
+				if(TablaSimbolos.getVariable(a) != null){
+					a = TablaSimbolos.getVariable(a);
+				}
+				else System.out.println("CHECK_ERROR: No encuentro en la TablaSimbolos una variable que contenga el valor: "+a);
+			}
+			if(isArray(b)){
+				if(TablaSimbolos.getVariable(b) != null){
+					b = TablaSimbolos.getVariable(b);
+				}
+				else System.out.println("CHECK_ERROR: No encuentro en la TablaSimbolos una variable que contenga el valor: "+b);
+			}
+			TablaSimbolos.insertarVariable(variable, "int", null);
+			System.out.println("\t" + variable + " = " + a + " * " + b + ";");
+		}
+			
+		else {
+			TablaSimbolos.insertarVariable(variable, "int", null);
+			System.out.println("\t" + variable + " = " + a + " * " + b + ";");
+		}
+		tipoAux = TablaSimbolos.getTipo(variable);
+	}
+	
+	public void division(String variable, String a, String b){
+		if(isFloat(a) || isFloat(b)){
+			TablaSimbolos.insertarVariable(variable, "float", null);
+			System.out.println("\t" + variable + " = " + a + " /r " + b + ";");
+		}
+		else if(isArray(a) || isArray(b)){
+			if(isArray(a)){
+				if(TablaSimbolos.getVariable(a) != null){
+					a = TablaSimbolos.getVariable(a);
+				}
+				else System.out.println("CHECK_ERROR: No encuentro en la TablaSimbolos una variable que contenga el valor: "+a);
+			}
+			if(isArray(b)){
+				if(TablaSimbolos.getVariable(b) != null){
+					b = TablaSimbolos.getVariable(b);
+				}
+				else System.out.println("CHECK_ERROR: No encuentro en la TablaSimbolos una variable que contenga el valor: "+b);
+			}
+			TablaSimbolos.insertarVariable(variable, "int", null);
+			System.out.println("\t" + variable + " = " + a + " / " + b + ";");
+		}	
+		else {
+			TablaSimbolos.insertarVariable(variable, "int", null);
+			System.out.println("\t" + variable + " = " + a + " / " + b + ";");
+		}
+		tipoAux = TablaSimbolos.getTipo(variable);
+	}
+
+	public void menosUnario(String variable, String a){
+		System.out.println("\t" + variable + " = -" + a + ";");
+	}
+
+	// *************************************************************************************
+	// 					-------------------- Funciones  --------------------
+	// *************************************************************************************
+	public void print(String arg){
+		if(isUnicode(arg)){
+			System.out.println("\tprint "+ unicodeANumero(arg.substring(1, arg.length()-1)) + ";");
+		}
+		else System.out.println("\tprint "+ arg + ";");									// Print normal
+	}
+
+	public int unicodeANumero(String unicodeString) {				// Pasa un caracter unicode a su valor numérico
+        if (unicodeString.matches("\\\\u[0-9a-fA-F]{4}")) {
+            String unicodeSequence = unicodeString.substring(2);
+            return Integer.parseInt(unicodeSequence, 16);
+        }
+		else return -1;
+    }
+
+	public void printCastingChar(String arg){ // Entra un argumento del formato 'arg' ('a', '\u0092'...)
+		if(TablaSimbolos.contieneVariable(arg)) {
+			if(tipoAux.equals("char")) System.out.println("\tprintc "+ arg + ";");
+			else if(tipoAux.equals("int")) print(arg);
+		}
+		else if(arg.charAt(1) == '\\' && arg.charAt(2) == 'u'){
+			System.out.println("\tprintc "+ unicodeANumero(arg.substring(1, arg.length()-1)) + ";");
+		}
+		else System.out.println("\tprintc "+ (int) arg.charAt(1) + ";");					// hace "printc" y pasa el caracter a número (printc 67;)
+	}
+
+	public void printCastingFloat(String temporal, String variable, String valor){ // $tX = (float) valor; variable = $tX;
+		temporal = crearTemporal();
+		TablaSimbolos.insertarVariable(temporal, "float", valor);
+		System.out.println("\t" + temporal + " = (float) "+ valor + ";");
+		variable(variable, temporal);
+	}
+
+	public void printCaracter(String arg){
+		System.out.println("\tprintc "+ arg + ";");									// printc de un caracter (printc a;)
+	}
+
+	public void printLongitudArray(String v){
+		System.out.println("\t$" + v + "_length = "+ TablaSimbolos.getLongitudArray(v) + ";");
+	}
+
+	public void checkRango(String longitud, String lengthToCheck){
+		// System.out.println("AAA");
+		String etiqFalse = crearEtiqueta();
+		String etiqTrue = crearEtiqueta();
+
+		ifMenor(lengthToCheck, "0", etiqFalse);
+		ifMenor(longitud, lengthToCheck, etiqFalse);
+		ifIgual(longitud, lengthToCheck, etiqFalse);
+		salto(etiqTrue);
+
+		etiqueta(etiqFalse);
+		System.out.println("\terror;");
+		System.out.println("\thalt;");
+		etiqueta(etiqTrue);
+	}
+
+	public void checkExpArray(String array){
+		int indiceEspacio = array.indexOf(" ");
+
+		String variable = array.substring(0, indiceEspacio);
+		String indiceArray = array.substring(indiceEspacio+1);
+		if(TablaSimbolos.contieneArray(variable)){
+			//System.out.println("Checkear los indices -> indice: "+indiceArray);
+			checkRango(TablaSimbolos.getArray(variable).getThisLongitud(), indiceArray); 
+		}
+	}
+
+	public void printArray(String variable, String indiceArray){
+		String temp = crearTemporal();
+		TablaSimbolos.insertarVariable(temp, TablaSimbolos.getTipoArray(variable), null);
+		System.out.println("\t" + temp + " = " + variable + "["+ indiceArray + "];");
+		if(TablaSimbolos.getTipo(temp).equals("char")){
+			printCaracter(temp);
+		}
+		else{
+			print(temp);
+		}
+	}
+
+	/*	public void checkRango(Arr a, String lengthToCheck){
+		String etiqFalse = crearEtiqueta();
+		String etiqTrue = crearEtiqueta();
+		ifMenor(lengthToCheck, "0", etiqFalse);
+		ifMenor(a.length, lengthToCheck, etiqFalse);
+		ifIgual(a.length, lengthToCheck, etiqFalse);
+		salto(etiqTrue);
+		etiqueta(etiqFalse);
+		System.out.println("\terror;");
+		System.out.println("\thalt;");
+		etiqueta(etiqTrue);
+	}*/
+	
+	public boolean isArray(String arg){ 									// Puede que haga falta meterle algo mas
+		return (arg.contains(" ")) ? true : false; 
+	}
+
+	public boolean isChar(String arg){
+		return (arg.charAt(0) == '\'' && arg.charAt(arg.length()-1) == '\'') ? true : false;
+	}
+
+	public boolean isUnicode(String arg){
+		return (arg.length() > 3 && arg.charAt(1) == '\\' && arg.charAt(2) == 'u') ? true : false;
+	}
+
+	public boolean isFloat(String arg){
+		/*System.out.println("AQUI HE LLEGADO CON "+arg);
+		System.out.println("T o F ? "+TablaSimbolos.contieneVariable(arg));
+		if( TablaSimbolos.contieneVariable(arg) == true ){
+			if(TablaSimbolos.getTipo(arg).equals("float")) return true;
+		}
+		else if(arg.matches("^\\d*\\.\\d+$")) return true;
+		return false; */
+        return ( (TablaSimbolos.contieneVariable(arg) && TablaSimbolos.getTipo(arg).equals("float") ) || arg.matches("^\\d*\\.\\d+$") ) ? true : false;
+    }
+
+	public boolean isInt(String arg){
+        return (TablaSimbolos.contieneVariable(arg) && TablaSimbolos.getTipo(arg).equals("int") || arg.matches("(0|[1-9][0-9]*)")) ? true : false;
+    }
+
+	public void ifMenor(String a, String b, String etiqueta){
+		System.out.println("\tif (" + a + " < " + b +") goto " + etiqueta +";");
+	}
+
+	public void ifIgual(String a, String b, String etiqueta){
+		System.out.println("\tif (" + a + " == " + b +") goto " + etiqueta +";");
+	}
+
+
+	/* Esta clase interna se encarga de almacenar 3 etiquetas
+	de forma que puedan moverse por la gramática a traveś de RESULT
+
+	Las etiquetas representan los siguiente:
+	1. Salto si se cumple la condición 		(true)
+	2. Salto si NO se cumple la condición 	(false)
+	3. Salto tras ejecutar la sentencia 	(salida)
+	*/
+	class Condicion{
+		private String[] etiquetas = {null, null, null};
+
+		// Constructores
+		public Condicion(){
+			etiquetas[0] = crearEtiqueta();
+			etiquetas[1] = crearEtiqueta();
+		}
+
+		public Condicion(String etiqueta1, String etiqueta2){
+			etiquetas[0] = etiqueta1;
+			etiquetas[1] = etiqueta2;
+		}
+
+		public void printEtiquetas(){
+			System.out.println("Etiquetas -> true: "+etiqTrue()+" false: "+etiqFalse()+" salida: "+etiqSalida());
+		}
+
+		// Getters
+		public String etiqTrue() { return etiquetas[0]; }
+
+		public String etiqFalse() { return etiquetas[1]; }
+
+		public String etiqSalida() { return etiquetas[2]; }
+
+		// Setters
+		public void setEtiqTrue(String etiqueta) { etiquetas[0] = etiqueta; }
+
+		public void setEtiqFalse(String etiqueta) { etiquetas[1] = etiqueta; }
+
+		public void setEtiqSalida(String etiqueta) { etiquetas[2] = etiqueta; }
+	} // Fin: class Condicion
+:} // Fin: action code
+
+parser code {:
+:}
+
+init with {:
+:}
+
+/**********************************************************************************************
+***********************************************************************************************
+
+					INICIO DEL CÓDIGO EN CUP
+
+**********************************************************************************************
+*********************************************************************************************/
+
+/* Terminales */
+
+terminal String CARACTER;		// Cualquier letra o caracter de escape (‘\b’,’\n’,’\f’,’\r’,’\t’,’\”’,’\\’,’\’’).
+terminal String UNICODE;		// \u seguido de 4 dígitos en hexadecimal. e.g: \u0021,  \u 23b2 ...
+terminal IF, ELSE, DO, WHILE, FOR, PRINT, LENGTH; 			// Funciones del lenguaje
+terminal IGUALDAD, NO_IGUALDAD, MENOR, MENOR_IGUAL, MAYOR, MAYOR_IGUAL, AND, OR, NOT;   // Operadores lógicos
+terminal MAS, MENOS, POR, DIV, MENOS_UNARIO, ASIG;	// -- inicio: Operadores matemáticos 
+terminal COMA, PUNTO; 										// Separador
+terminal CASTING_PREC;
+terminal String COMILLAS_SIMPLES;
+terminal String VAR, VAR_BOOLEAN, NUM_ENTERO, NUM_FLOAT, TRUE, FALSE; 							// Valores numéricos
+terminal AP, CP, ALL, CLL, AC, CC; 							// Apertura y cierres (paréntesis, llaves)
+terminal PYC; 										// Fin de línea (punto y coma)
+terminal String INT, FLOAT, CHAR, STRING, BOOLEAN;			// Tipos (int, char...)
+
+
+/* No terminales */
+non terminal listaSent, sent;		// Sentencias genéricas
+non terminal sent_print; 			// Sentencia de la función 'print'
+non terminal sent_if, sent_else;	// Sentencias de 'if' y 'else'
+non terminal declaracion, listaVariables; // Declaración de variables (int x = 0; ...)
+non terminal declaracionArraysLlaves, exp_lista;	// Declaración de arrays con llaves (x = {...})
+
+non terminal String tipo, valor_booleano;			// int, char, float, String, true, false
+non terminal String exp;			// Expresión matemática (sumas, restas...)
+non terminal String casting; 		// (char) exp , (int) exp
+non terminal Condicion condicion;	// Condición (e.g. de un if, de un while...)
+non terminal String sent_while, sent_for; // Sentencias 'while', 'do-while' y 'for'
+
+/* Precedencia */
+precedence left CARACTER, UNICODE;
+precedence left IF, ELSE, DO, WHILE, FOR, PRINT, LENGTH;
+precedence left COMA, PUNTO;
+precedence left MAS, MENOS;
+precedence left POR, DIV;
+precedence left MENOR_IGUAL, MENOR, MAYOR_IGUAL, MAYOR, IGUALDAD, NO_IGUALDAD;
+precedence left OR;
+precedence left AND, NOT;
+precedence left VAR, VAR_BOOLEAN, NUM_ENTERO, NUM_FLOAT, TRUE, FALSE;
+
+precedence nonassoc COMILLAS_SIMPLES;
+precedence nonassoc MENOS_UNARIO;				// Puede que funcione con right
+precedence nonassoc INT, FLOAT, CHAR, STRING, BOOLEAN;	// Puede que funcione con right
+precedence nonassoc AP, CP, ALL, CLL, AC, CC;
+precedence left CASTING_PREC;
+
+
+/* Gramatica */
+
+// Sentencias
+listaSent ::= listaSent sent	// sentencia, listaSentencias
+			| sent
+			;
+
+sent ::= exp PYC				// expresión, print, if, if/else, while/do-while, for, listaSentencias
+	   | declaracion		
+	   | declaracionArraysLlaves
+	   | sent_print 
+	   | sent_if 
+	   | sent_while
+	   | sent_for
+	   | ALL listaSent:ls CLL 	{: RESULT = ls; :}
+	   ;
+
+// Funciones
+sent_print ::= PRINT AP VAR:e CP PYC {:				// print(variable);
+				//System.out.println("------------------------------- PRINT DE *"+e + "*, "+ isCasting+ ", tipoaux: "+tipoAux);
+				//TablaSimbolos.printTabla();
+				RESULT = e;
+				if(TablaSimbolos.contieneVariable(e) && TablaSimbolos.getTipo(e).equals("char")) printCaracter(e);   // printc variable
+				else if(TablaSimbolos.contieneArray(e)){
+
+					String tempAux = crearTemporal();
+					Arr aux = TablaSimbolos.getArray(e);
+					List<Object> valoresAux = TablaSimbolos.getListaValores(e);
+					int i = 0;
+					for(Object o : valoresAux){
+						if(o != null){
+							String auxPrint = e + "["+Integer.toString(i) +"]";
+							System.out.println("\t"+ tempAux + " = " + auxPrint +";");
+							if(TablaSimbolos.getTipoArray(e).equals("char")){
+								printCaracter(tempAux);
+							}
+							else{
+								print(tempAux);
+							}
+							++i;
+						}
+					}
+				}
+				else print(e);
+				//TablaSimbolos.imprimirListaArrays();
+				//TablaSimbolos.printTabla();
+			:}
+			|  PRINT AP ALL exp_lista CLL CP PYC {:				// print({exp_lista});
+				String tempAux1 = crearTemporal();
+				int longCnt = 0;
+				/* 1. Hago las impresiones
+						$tX[0] = 65;
+       					$tX[1] = 66;
+        				$tX[2] = 67; ... etc*/
+				for(int i = 0; i < arrayAux.size(); ++i){
+					if(isChar(arrayAux.get(i))){
+						++longCnt;
+						//TablaSimbolos.insertarValorArray(v, Integer.toString(i), Integer.toString( (int) (arrayAux.get(i)).charAt(1) )  );
+						System.out.println("\t"+tempAux1+ "["+i+"] = "+Integer.toString( (int) (arrayAux.get(i)).charAt(1) )+";");
+					}
+					else{
+						//TablaSimbolos.insertarValorArray(v, Integer.toString(i), arrayAux.get(i));
+						System.out.println("\t"+tempAux1+ "["+i+"] = "+arrayAux.get(i)+";");
+					}
+				}
+				/* 2. Hago un array $tX y meto todo eso*/
+				/*for(int i = 0; i < arrayAux.size() ++i){
+					if(if(isChar(arrayAux.get(i))))
+						insertarArray(tempAux1, )
+				}*/
+				
+				/* 1. (3.) Imprimo todo ->    $t1 = $t0[0]; print $t1; ... */
+				String tempAux2 = crearTemporal();
+				int i = 0;
+					for(String s : arrayAux){
+						String auxPrint = tempAux1 + "["+Integer.toString(i) +"]";
+						System.out.println("\t"+ tempAux2 + " = " + auxPrint +";");
+						print(tempAux2);
+						++i;
+					}
+			:}
+			|  PRINT AP exp:e CP PYC {:				// print(expresion);
+				RESULT = e;
+				//System.out.println("------------------------------- PRINT DE "+e + ", "+ isCasting+ ", tipoaux: "+tipoAux);
+				//TablaSimbolos.printTabla();
+				if(isCasting && !tipoAux.equals("char") && TablaSimbolos.contieneVariable(e) && !tipoAux.equals(TablaSimbolos.getTipo(e))){
+					//System.out.println("Entro aqui ??????????????????????");
+					TablaSimbolos.insertarVariable(e, tipoAux, null);
+					String tempAux = crearTemporal();
+					//System.out.println("\t" + tempAux + " = ("+ tipoAux + ") " e + ";");
+					System.out.println("\t" + tempAux + " = (" + tipoAux + ") " + e + ";");
+					e = tempAux;
+				}
+				if(isCasting && tipoAux.equals("char") || isChar(e)) printCastingChar(e);
+				else if(isChar(e)) printCastingChar(e);
+				else if(e.contains(" ")){
+					int indiceEspacio = e.indexOf(" ");
+
+					String variable = e.substring(0, indiceEspacio);
+					String indiceArray = e.substring(indiceEspacio+1);
+					if(TablaSimbolos.contieneArray(variable)){
+						checkRango(TablaSimbolos.getArray(variable).getThisLongitud(), indiceArray);
+						printArray(variable, indiceArray);
+					}
+				} // printVarArray y luego checkExpArray
+				else { print(e); }
+				//TablaSimbolos.imprimirListaArrays();
+			:}
+			;
+
+sent_if ::= IF AP condicion:c CP {:					// if(condicion) {sentencia} | if(condicion) {sentencia} else{sentencia}
+				c.setEtiqSalida(crearEtiqueta());
+				etiqueta(c.etiqTrue());
+		:}	sent {:
+				salto(c.etiqSalida());
+				etiqueta(c.etiqFalse());
+		:}  sent_else {:
+				etiqueta(c.etiqSalida());
+		:}
+		;
+
+sent_else ::= ELSE sent:s	{: RESULT = s; :}		// else {sentencia}
+		  |	  /* EPSILON */
+		  ;
+
+sent_while ::= WHILE {:							// while(condicion) {sentencia}
+					RESULT = crearEtiqueta();
+					etiqueta(RESULT);
+			:} AP condicion:c CP {:
+					c.setEtiqSalida(RESULT);
+					etiqueta(c.etiqTrue());
+			:} sent {:
+					salto(c.etiqSalida());
+					etiqueta(c.etiqFalse());
+			:}
+			|  DO {:							// DO {sentencia} WHILE(condicion);
+					RESULT = crearEtiqueta();
+					etiqueta(RESULT);
+			:} sent WHILE AP condicion:c CP PYC {:
+					c.setEtiqSalida(RESULT);
+					etiqueta(c.etiqTrue());
+					salto(c.etiqSalida());
+					etiqueta(c.etiqFalse());
+			:}
+			;
+
+sent_for ::= FOR {:								// for(expresión; condición; expresión) {sentencia}
+				//System.out.println("Estoy en FOR con RESULT(1): "+RESULT);
+
+		 		//RESULT = crearEtiqueta(); he comentado esto y el for se ha arreglado aparentemente
+
+				//System.out.println("Estoy en FOR con RESULT(2): "+RESULT);
+		 :} AP exp:e PYC {:
+		 		//System.out.println("Estoy en AP exp PYC, con exp: "+ e + " y con RESULT (temporal): "+RESULT);
+				RESULT = crearEtiqueta();
+		 		etiqueta(RESULT);
+		 :} condicion:c PYC {:
+		 		c.setEtiqSalida(RESULT);
+				RESULT = crearEtiqueta();
+				etiqueta(RESULT);
+		 :} exp CP {:
+		 		salto(c.etiqSalida());
+				etiqueta(c.etiqTrue());
+		 :} sent {:
+		 		salto(RESULT);
+				etiqueta(c.etiqFalse());
+		 :}
+		 ;
+
+// Condiciones
+condicion ::= exp:a IGUALDAD exp:b{:			// a == b
+				RESULT = new Condicion();
+				//System.out.println("EEEEEEEEEEEEEE");
+				//RESULT.printEtiquetas();
+				ifIgual(a, b, RESULT.etiqTrue());
+				salto(RESULT.etiqFalse());
+		:}
+		|	  exp:a NO_IGUALDAD exp:b{:			// a != b
+				RESULT = new Condicion();
+				ifIgual(a, b, RESULT.etiqFalse());
+				salto(RESULT.etiqTrue());
+		:}
+		|	  exp:a MENOR exp:b{:				// a < b
+				//System.out.println("EEEEEEEEEEEEEE");
+				RESULT = new Condicion();
+				ifMenor(a, b, RESULT.etiqTrue());
+				//RESULT.printEtiquetas();
+				salto(RESULT.etiqFalse());
+				//RESULT.printEtiquetas();
+		:}
+		|	  exp:a MENOR_IGUAL exp:b{:			// a <= b
+				RESULT = new Condicion();
+				ifMenor(b, a, RESULT.etiqFalse());
+				salto(RESULT.etiqTrue());
+		:}
+		|	  exp:a MAYOR exp:b{:				// a > b
+				RESULT = new Condicion();
+				ifMenor(b, a, RESULT.etiqTrue());
+				salto(RESULT.etiqFalse());
+		:}
+		|	  exp:a MAYOR_IGUAL exp:b{:			// a >= b
+				RESULT = new Condicion();
+				ifMenor(a, b, RESULT.etiqFalse());
+				salto(RESULT.etiqTrue());
+		:}
+		|	  AP condicion:c CP						{:
+				RESULT = new Condicion(c.etiqTrue(), c.etiqFalse()); // (condicion)
+		:} 
+		|	  NOT condicion:c {:					// !condicion
+				// c.printEtiquetas();
+				RESULT = new Condicion(c.etiqFalse(), c.etiqTrue());
+				// RESULT.printEtiquetas();
+		:}
+		|	  condicion:a AND {:					// condicion && condicion
+				//a.printEtiquetas();
+				// System.out.println("--------------------------------- ETIQUETAS: ");
+				etiqueta(a.etiqTrue());
+		:}    condicion:b {:
+				etiqueta(a.etiqFalse());
+				salto(b.etiqFalse());
+				//System.out.println("PRINTEO TODAS LAS ETIQUETAS ANTES DE IRME:");
+				//b.printEtiquetas();
+
+				RESULT = b;
+		:}
+		|	  condicion:a OR {:						// condicion || condicion
+				etiqueta(a.etiqFalse());
+		:}    condicion:b {:
+				etiqueta(a.etiqTrue());
+				salto(b.etiqTrue());
+				RESULT = b;
+		:}
+		|	  exp:e {:
+				Condicion c = new Condicion();
+				// System.out.println("EXP: "+e); c.printEtiquetas();
+
+				if(e != null){
+					if(TablaSimbolos.contieneVariable(e) && TablaSimbolos.getTipo(e).equals("boolean")){
+					ifIgual("1", e, c.etiqTrue());
+					salto(c.etiqFalse());
+					}
+					else if(e.equals("true") || (TablaSimbolos.contieneVariable(e) && TablaSimbolos.getValor(e).equals("true")) ){
+						c.setEtiqSalida(crearEtiqueta());
+						salto(c.etiqTrue());
+						etiqueta(c.etiqTrue());
+						variable(c.etiqSalida(), "1");
+
+						etiqueta(c.etiqFalse());
+						variable(varAux, c.etiqSalida());
+					}
+					else if(e.equals("false") || (TablaSimbolos.contieneVariable(e) && TablaSimbolos.getValor(e).equals("false")) ){
+						salto(c.etiqFalse());
+					}
+				}
+
+				RESULT = c;
+		:}
+		;
+
+// Valor booleano (true o false)
+valor_booleano ::= TRUE:t 	{: RESULT = t; :}
+				|  FALSE:f  {: RESULT = f; :}
+				;
+
+// Tipos de variables
+tipo ::= INT:t 		{: RESULT = t; :}
+	  |  FLOAT:t	{: RESULT = t; :}
+	  |  CHAR:t 	{: RESULT = t; :}
+	  |  STRING:t 	{: RESULT = t; :}
+	  |  BOOLEAN:t	{: RESULT = t; :}
+	  ;
+
+casting ::= AP INT:i CP {: RESULT = i; tipoAux = "int";  :} %prec CASTING_PREC
+		| 	AP CHAR:c CP {: RESULT = c; tipoAux = "char";  :} %prec CASTING_PREC
+		|	AP FLOAT:f CP {: RESULT = f; tipoAux = "float";  :} %prec CASTING_PREC
+		;
+
+// Declaración de variables
+declaracion ::= tipo:t {:
+					//System.out.println("HE ENTRADO");
+					tipoAux = t;
+					//if(tipoAux.equals("boolean")) TablaSimbolos.setIsBoolean("true");
+					//System.out.println("ISBOOLEAN AL PRINCIPIO: "+ TablaSimbolos.getIsBoolean());
+
+			:} listaVariables PYC
+			;
+
+// VAR ASIG exp
+listaVariables ::= VAR:v ASIG exp:e COMA listaVariables {:
+						//System.out.println("****** Meto la variable -----> "+v);
+						//TablaSimbolos.printTabla();
+						if(TablaSimbolos.contieneVariable(v)) { error_ya_declarado(v);}
+						TablaSimbolos.insertarVariable(v, tipoAux, e);
+						if(isChar(e)) variablec(v, e);
+						//TablaSimbolos.printTabla();
+			:}
+			/*|	   VAR:v AC NUM_ENTERO CC ASIG exp:e COMA listaVariables {:
+						//System.out.println("****** Meto la variable -----> "+a);
+						//TablaSimbolos.printTabla();
+						if(TablaSimbolos.contieneVariable(a)) { error_ya_declarado(a);}
+						TablaSimbolos.insertarVariable(a, tipoAux, e);
+						if(isChar(e)) variablec(a, e);
+						//TablaSimbolos.printTabla();
+			:}*/
+			|      VAR:v ASIG exp:e {:
+						//System.out.println("-------------------------------------------------- HE LLEGADO AQUI (en VAR = expresion)");
+						if(TablaSimbolos.contieneVariable(v)) { error_ya_declarado(v);}
+						//if(TablaSimbolos.contieneVariable(e) && !TablaSimbolos.getTipo(v).equals(tipoAux)) { variable(v, e); error_de_tipos(v,e); }
+						
+						//System.out.println("****** Meto la variable -----> "+v);
+						//TablaSimbolos.printTabla();
+						TablaSimbolos.insertarVariable(v, tipoAux, e);
+						//TablaSimbolos.printTabla();
+
+						if(isChar(e)) { variablec(v, e); }
+						else variable(v, e);
+			:} 
+			|      VAR_BOOLEAN:v {:
+						varAux = v;
+						if(TablaSimbolos.contieneVariable(v)) { error_ya_declarado(v);}
+						TablaSimbolos.insertarVariable(v, tipoAux, "false");
+						//System.out.println("AQUI ASIGNO VARAUX A: "+varAux);
+				:} ASIG condicion:e {:
+						//System.out.println("-------------------------------------------------- HE LLEGADO AQUI (en VAR_BOOLEAN = condicion)");
+			:} 
+			|      VAR:v AC NUM_ENTERO:l CC ASIG exp:e {: //
+						// System.out.println("-------------------------------------------------- HE LLEGADO AQUI (en array = exp)");
+						if(TablaSimbolos.contieneArray(v)) { error_ya_declarado(v);}
+						//Arr aux = TablaSimbolos.getArray(v);
+						//checkRango(aux.getThisLongitud(), l);
+						TablaSimbolos.insertarArray(tipoAux, v, l);
+			:}
+			| 	   VAR:v COMA listaVariables{:
+						//System.out.println("****** Meto la variable -----> "+v);
+						//TablaSimbolos.printTabla();
+						if(TablaSimbolos.contieneVariable(v)) { error_ya_declarado(v);}
+						TablaSimbolos.insertarVariable(v, tipoAux, null);
+						//TablaSimbolos.printTabla();
+			:}
+			/*| 	   VAR:v AC NUM_ENTERO CC COMA listaVariables{:
+						//System.out.println("****** Meto la variable -----> "+a);
+						//TablaSimbolos.printTabla();
+						if(TablaSimbolos.contieneVariable(a)) { error_ya_declarado(a);}
+						TablaSimbolos.insertarVariable(a, tipoAux, null);
+						//TablaSimbolos.printTabla();
+			:}*/
+			|	   VAR:v {:
+						//System.out.println("****** Meto la variable -----> "+v+" con el tipo: "+tipoAux);
+						//TablaSimbolos.printTabla();
+						if(TablaSimbolos.contieneVariable(v)) { error_ya_declarado(v);}
+						if(tipoAux.equals("boolean")){
+							//TablaSimbolos.printTabla();
+							TablaSimbolos.insertarVariable(v, tipoAux, "false");
+							//TablaSimbolos.printTabla();
+						}
+						else {
+							TablaSimbolos.insertarVariable(v, tipoAux, null);
+						}
+						//TablaSimbolos.printTabla();
+						//TablaSimbolos.printTabla();
+			:}
+			|	   VAR:v AC NUM_ENTERO:l CC {:
+						//System.out.println("****** Meto la variable -----> "+v);
+						//TablaSimbolos.imprimirListaArrays();
+						if(TablaSimbolos.contieneArray(v)) { error_ya_declarado(v);}
+						TablaSimbolos.insertarArray(tipoAux, v, l);
+						printLongitudArray(v);
+						//TablaSimbolos.imprimirListaArrays();
+						//TablaSimbolos.printTabla();
+			:}
+			|	   VAR:v AC VAR:vi CC {:
+						//System.out.println("****** Meto la variable -----> "+v);
+						//TablaSimbolos.printTabla();
+						if(TablaSimbolos.contieneArray(v)) { error_ya_declarado(v);}
+						if(!TablaSimbolos.contieneVariable(vi)) { error_no_declarado(vi);}
+						TablaSimbolos.insertarArray(tipoAux, v, TablaSimbolos.getValor(vi));
+						printLongitudArray(v);
+						//TablaSimbolos.printTabla();
+			:}
+				|	VAR:v AC NUM_ENTERO:l CC ASIG ALL exp_lista CLL {:
+						if(TablaSimbolos.contieneArray(v)) { error_ya_declarado(v);}
+						TablaSimbolos.insertarArray(tipoAux, v, l);
+						//TablaSimbolos.imprimirListaArrays();
+						//System.out.println("El tipo de "+v+" es: "+TablaSimbolos.getTipoArray(v));
+						//System.out.println("--------------------- El array es: "+arrayAux);
+						for(int i = 0; i < arrayAux.size(); ++i){
+							if(TablaSimbolos.getTipoArray(v).equals("int") && isFloat(arrayAux.get(i))) { tipoAux = "int"; error_de_tipos(v, arrayAux.get(i)); }
+							if(TablaSimbolos.getTipoArray(v).equals("float") && isInt(arrayAux.get(i))) { tipoAux = "float"; error_de_tipos(v, arrayAux.get(i)); }
+						}
+						varArrayAux = v;
+						//System.out.println("--------------------- El array es: "+arrayAux);
+						String resTemp = crearTemporal();
+						for(int i = 0; i < arrayAux.size(); ++i){
+							if(isChar(arrayAux.get(i))){
+								TablaSimbolos.insertarValorArray(v, Integer.toString(i), Integer.toString( (int) (arrayAux.get(i)).charAt(1) )  );
+								System.out.println("\t"+resTemp+ "["+i+"] = "+Integer.toString( (int) (arrayAux.get(i)).charAt(1) )+";");
+							}
+							else{
+								TablaSimbolos.insertarValorArray(v, Integer.toString(i), arrayAux.get(i));
+								System.out.println("\t"+resTemp+ "["+i+"] = "+arrayAux.get(i)+";");
+							}
+							
+						}
+						String auxTemp = resTemp; // $t0
+						resTemp = crearTemporal(); // $t1
+						for(int i = 0; i < arrayAux.size(); ++i){
+							String auxAsig = auxTemp+ "["+i+"]";
+							variable(resTemp, auxAsig);								// $tX[Y]
+							System.out.println("\t"+v+ "["+i+"] = "+resTemp+";");
+						}
+						//TablaSimbolos.imprimirListaArrays();
+						// System.out.println("------- Entro en (3) insertando "+ e + "en "+v);
+				:}
+			;
+
+exp_lista ::= 	exp_lista COMA exp:e1  {:																	
+ 					//System.out.println("------- Entro en (1) insertando "+ e1 + "en "+varArrayAux);
+					arrayAux.add(e1);
+  			:}
+      	  	|	exp:e {:
+					//System.out.println("------- Entro en (2) insertando "+ e + "en "+varArrayAux);
+					arrayAux.add(e);
+			:}
+			;
+
+
+// Expresiones
+exp ::= exp:a MAS exp:b {:				// a + b        ------------------------> Chequeo para las operaciones matematicas de arrays
+			RESULT = crearTemporal();
+				// System.out.println("********Voy a sumar "+a+" y "+b);
+			if( isFloat(a) && isInt(b)  ){
+				TablaSimbolos.insertarVariable(RESULT, "float", null);
+				System.out.println("\t" + RESULT + " = (float) "+ b + ";");
+				b = RESULT;
+				RESULT = crearTemporal();
+			}
+			else if (isInt(a) && isFloat(b)){
+				TablaSimbolos.insertarVariable(RESULT, "float", null);
+				System.out.println("\t" + RESULT + " = (float) "+ a + ";");
+				a = RESULT;
+				RESULT = crearTemporal();
+			}
+
+			if(isChar(a) && isChar(b)){
+				a = Integer.toString( (int)a.charAt(1) );
+				b = Integer.toString( (int)b.charAt(1) );
+			}
+			else if(isInt(a) && isChar(b)){
+				b = Integer.toString( (int)b.charAt(1) );
+			}
+			else if(isChar(a) && isInt(b)){
+				a = Integer.toString( (int)a.charAt(1) );
+			}
+			// *** Comiendo las comprobaciones para hacer las operaciones con arrays ***
+
+			//System.out.println("---------------- SUMA DE "+a + " y "+ b + " con RESULT = "+RESULT);
+			//System.out.println("----------------- Entro a MAS con RESULT, a y b (1): " + RESULT + ", " + a + ", "+b);
+			if(a.contains(" ") || b.contains(" ")){
+					if(a.contains(" ")){
+					checkExpArray(a);
+
+					//System.out.println("Voy a tratar ahora con (a): "+a+" y RESULT: "+RESULT);
+					int indiceEspacio_a = a.indexOf(" ");
+					String variable_a = a.substring(0, indiceEspacio_a);
+					tipoAux = TablaSimbolos.getTipoArray(variable_a);
+					TablaSimbolos.insertarVariable(RESULT, tipoAux, a);
+
+					variable(RESULT, a);
+					if(a.contains(" ") && b.contains(" ")) { a = RESULT; RESULT = crearTemporal(); }
+					else a = RESULT;
+				} 
+				
+				//System.out.println("----------------- Entro a MAS con RESULT, a y b (2): " + RESULT + ", " + a + ", "+b);
+				if(b.contains(" ")){
+					checkExpArray(b);
+					//System.out.println("Voy a tratar ahora con (b): "+b+" y RESULT: "+RESULT);
+					//RESULT = crearTemporal();
+					//System.out.println("Voy a tratar ahora con (b): "+b+" y RESULT: "+RESULT);
+
+					int indiceEspacio_b = b.indexOf(" ");
+					String variable_b = b.substring(0, indiceEspacio_b);
+					tipoAux = TablaSimbolos.getTipoArray(variable_b);
+					TablaSimbolos.insertarVariable(RESULT, tipoAux, b);
+
+					variable(RESULT, b);
+					b = RESULT;
+				}
+				RESULT = crearTemporal();
+			}
+			//System.out.println("----------------- Entro a MAS con RESULT, a y b (3): " + RESULT + ", " + a + ", "+b);
+			// tipoAux = 
+			//TablaSimbolos.printTabla();
+			suma(RESULT, a, b);
+	:}
+	| 	exp:a MENOS exp:b {:
+			RESULT = crearTemporal();	// a - b
+
+			if( isFloat(a) && isInt(b)  ){
+				TablaSimbolos.insertarVariable(RESULT, "float", null);
+				System.out.println("\t" + RESULT + " = (float) "+ b + ";");
+				b = RESULT;
+				RESULT = crearTemporal();
+			}
+			else if (isInt(a) && isFloat(b)){
+				TablaSimbolos.insertarVariable(RESULT, "float", null);
+				System.out.println("\t" + RESULT + " = (float) "+ a + ";");
+				a = RESULT;
+				RESULT = crearTemporal();
+			}
+			
+			if(isChar(a) && isChar(b)){
+				a = Integer.toString( (int)a.charAt(1) );
+				b = Integer.toString( (int)b.charAt(1) );
+			}
+			
+			// *** Comiendo las comprobaciones para hacer las operaciones con arrays ***
+
+			//System.out.println("---------------- RESTA DE "+a + " y "+ b + " con RESULT = "+RESULT);
+			//System.out.println("----------------- Entro a MENOS con RESULT, a y b (1): " + RESULT + ", " + a + ", "+b);
+			if(a.contains(" ") || b.contains(" ")){
+					if(a.contains(" ")){
+					checkExpArray(a);
+
+					//System.out.println("Voy a tratar ahora con (a): "+a+" y RESULT: "+RESULT);
+					int indiceEspacio_a = a.indexOf(" ");
+					String variable_a = a.substring(0, indiceEspacio_a);
+					tipoAux = TablaSimbolos.getTipoArray(variable_a);
+					TablaSimbolos.insertarVariable(RESULT, tipoAux, a);
+
+					variable(RESULT, a);
+					if(a.contains(" ") && b.contains(" ")) { a = RESULT; RESULT = crearTemporal(); }
+					else a = RESULT;
+				} 
+				
+				//System.out.println("----------------- Entro a MENOS con RESULT, a y b (2): " + RESULT + ", " + a + ", "+b);
+				if(b.contains(" ")){
+					checkExpArray(b);
+					//System.out.println("Voy a tratar ahora con (b): "+b+" y RESULT: "+RESULT);
+					//RESULT = crearTemporal();
+					//System.out.println("Voy a tratar ahora con (b): "+b+" y RESULT: "+RESULT);
+
+					int indiceEspacio_b = b.indexOf(" ");
+					String variable_b = b.substring(0, indiceEspacio_b);
+					tipoAux = TablaSimbolos.getTipoArray(variable_b);
+					TablaSimbolos.insertarVariable(RESULT, tipoAux, b);
+
+					variable(RESULT, b);
+					b = RESULT;
+				}
+				RESULT = crearTemporal();
+			}
+			//System.out.println("----------------- Entro a MENOS con RESULT, a y b (3): " + RESULT + ", " + a + ", "+b);
+
+			//TablaSimbolos.printTabla();
+
+			resta(RESULT, a, b);
+	:}
+	|	exp:a POR exp:b {:
+			RESULT = crearTemporal();	// a * b
+
+			if( isFloat(a) && isInt(b)  ){
+				TablaSimbolos.insertarVariable(RESULT, "float", null);
+				System.out.println("\t" + RESULT + " = (float) "+ b + ";");
+				b = RESULT;
+				RESULT = crearTemporal();
+			}
+			else if (isInt(a) && isFloat(b)){
+				TablaSimbolos.insertarVariable(RESULT, "float", null);
+				System.out.println("\t" + RESULT + " = (float) "+ a + ";");
+				a = RESULT;
+				RESULT = crearTemporal();
+			}
+
+			// *** Comiendo las comprobaciones para hacer las operaciones con arrays ***
+
+			//System.out.println("---------------- MULTIPLICACION DE "+a + " y "+ b + " con RESULT = "+RESULT);
+			//System.out.println("----------------- Entro a POR con RESULT, a y b (1): " + RESULT + ", " + a + ", "+b);
+			if(a.contains(" ") || b.contains(" ")){
+					if(a.contains(" ")){
+					checkExpArray(a);
+
+					//System.out.println("Voy a tratar ahora con (a): "+a+" y RESULT: "+RESULT);
+					int indiceEspacio_a = a.indexOf(" ");
+					String variable_a = a.substring(0, indiceEspacio_a);
+					tipoAux = TablaSimbolos.getTipoArray(variable_a);
+					TablaSimbolos.insertarVariable(RESULT, tipoAux, a);
+
+					variable(RESULT, a);
+					if(a.contains(" ") && b.contains(" ")) { a = RESULT; RESULT = crearTemporal(); }
+					else a = RESULT;
+				} 
+				
+				//System.out.println("----------------- Entro a POR con RESULT, a y b (2): " + RESULT + ", " + a + ", "+b);
+				if(b.contains(" ")){
+					checkExpArray(b);
+					//System.out.println("Voy a tratar ahora con (b): "+b+" y RESULT: "+RESULT);
+					//RESULT = crearTemporal();
+					//System.out.println("Voy a tratar ahora con (b): "+b+" y RESULT: "+RESULT);
+
+					int indiceEspacio_b = b.indexOf(" ");
+					String variable_b = b.substring(0, indiceEspacio_b);
+					tipoAux = TablaSimbolos.getTipoArray(variable_b);
+					TablaSimbolos.insertarVariable(RESULT, tipoAux, b);
+
+					variable(RESULT, b);
+					b = RESULT;
+				}
+				RESULT = crearTemporal();
+			}
+			//System.out.println("----------------- Entro a POR con RESULT, a y b (3): " + RESULT + ", " + a + ", "+b);
+
+			//TablaSimbolos.printTabla();
+
+			multiplicacion(RESULT, a, b);
+	:}
+	|	exp:a DIV exp:b {:				// a / b
+			RESULT = crearTemporal();
+
+			if( isFloat(a) && isInt(b)  ){
+				TablaSimbolos.insertarVariable(RESULT, "float", null);
+				System.out.println("\t" + RESULT + " = (float) "+ b + ";");
+				b = RESULT;
+				RESULT = crearTemporal();
+			}
+			else if (isInt(a) && isFloat(b)){
+				TablaSimbolos.insertarVariable(RESULT, "float", null);
+				System.out.println("\t" + RESULT + " = (float) "+ a + ";");
+				a = RESULT;
+				RESULT = crearTemporal();
+			}
+			//System.out.println("ISCASTING ES ----------> "+isCasting);
+			if(isCasting){ // Tengo que comprobar si a y b son int?? ---> posibles problemas con strings (problemas del ivan del futuro)
+				TablaSimbolos.insertarVariable(RESULT, tipoAux, null);
+				System.out.println("\t" + RESULT + " = (float) "+ a + ";");
+				a = RESULT;
+				RESULT = crearTemporal();
+
+				TablaSimbolos.insertarVariable(RESULT, tipoAux, null);
+				System.out.println("\t" + RESULT + " = (float) "+ b + ";");
+				b = RESULT;
+				RESULT = crearTemporal();
+			}
+
+			// *** Comiendo las comprobaciones para hacer las operaciones con arrays ***
+
+			//System.out.println("---------------- DIVISION DE "+a + " y "+ b + " con RESULT = "+RESULT);
+			//System.out.println("----------------- Entro a DIV con RESULT, a y b (1): " + RESULT + ", " + a + ", "+b);
+			if(a.contains(" ") || b.contains(" ")){
+					if(a.contains(" ")){
+					checkExpArray(a);
+
+					//System.out.println("Voy a tratar ahora con (a): "+a+" y RESULT: "+RESULT);
+					int indiceEspacio_a = a.indexOf(" ");
+					String variable_a = a.substring(0, indiceEspacio_a);
+					tipoAux = TablaSimbolos.getTipoArray(variable_a);
+					TablaSimbolos.insertarVariable(RESULT, tipoAux, a);
+
+					variable(RESULT, a);
+					if(a.contains(" ") && b.contains(" ")) { a = RESULT; RESULT = crearTemporal(); }
+					else a = RESULT;
+				} 
+				
+				//System.out.println("----------------- Entro a DIV con RESULT, a y b (2): " + RESULT + ", " + a + ", "+b);
+				if(b.contains(" ")){
+					checkExpArray(b);
+					//System.out.println("Voy a tratar ahora con (b): "+b+" y RESULT: "+RESULT);
+					//RESULT = crearTemporal();
+					//System.out.println("Voy a tratar ahora con (b): "+b+" y RESULT: "+RESULT);
+
+					int indiceEspacio_b = b.indexOf(" ");
+					String variable_b = b.substring(0, indiceEspacio_b);
+					tipoAux = TablaSimbolos.getTipoArray(variable_b);
+					TablaSimbolos.insertarVariable(RESULT, tipoAux, b);
+
+					variable(RESULT, b);
+					b = RESULT;
+				}
+				RESULT = crearTemporal();
+			}
+			//System.out.println("----------------- Entro a DIV con RESULT, a y b (3): " + RESULT + ", " + a + ", "+b);
+
+			//TablaSimbolos.printTabla();
+
+			division(RESULT, a, b);
+	:}
+	|	MENOS exp:e {:					// - expresión
+			RESULT = crearTemporal();
+			menosUnario(RESULT, e);
+	:} %prec MENOS_UNARIO
+	|	VAR_BOOLEAN:v ASIG condicion:c {:
+			c.setEtiqSalida(crearEtiqueta());
+
+			
+			//System.out.print("ENTRO con var "+v+" y condicion "); c.printEtiquetas(); // ME FALTA IF (0 < BY) GOTO L3; GOTO L4;
+		
+			etiqueta(c.etiqTrue());
+			variable(v, "1");
+			salto(c.etiqSalida());
+
+			etiqueta(c.etiqFalse());
+			variable(v, "0");
+
+			etiqueta(c.etiqSalida());
+			RESULT = v;
+	:}
+	|	VAR:v ASIG exp:e {:				// varible = expresión
+			//System.out.println("--------------------------- HE LLEGADO AQUI (en expresion): "+ v + " = " + e+ " y temp: "+temp);
+			//System.out.println("---------------******************** "+TablaSimbolos.getTipo(v)+ " =? "+ tipoAux);
+			//TablaSimbolos.printTabla();
+			//System.out.println("-----------------------"+Integer.parseInt(TablaSimbolos.getLongitudArray(v)) +"<"+ Integer.parseInt(TablaSimbolos.getLongitudArray(e)) );
+			if(TablaSimbolos.contieneArray(v) && Integer.parseInt(TablaSimbolos.getLongitudArray(v)) < Integer.parseInt(TablaSimbolos.getLongitudArray(e)) ) { error_de_dimensiones(v,e); }
+			if(!TablaSimbolos.contieneVariable(v) && !TablaSimbolos.contieneArray(v)) { error_no_declarado(v); }
+			//if(TablaSimbolos.contieneVariable(v) && TablaSimbolos.contieneVariable(e) && !TablaSimbolos.getTipo(v).equals(TablaSimbolos.getTipo(e))) { variable(v, e); error_de_tipos(v,e); }
+
+			if(TablaSimbolos.contieneVariable(e) && !TablaSimbolos.getTipo(v).equals(tipoAux)) { variable(v, e); error_de_tipos(v,e); }
+			//System.out.println("-------------------------------------------------- HE LLEGADO AQUI (en expresion)");
+			//System.out.println(!TablaSimbolos.contieneArray(v));
+			if(TablaSimbolos.contieneVariable(v) && isInt(v) && isFloat(e)) { variable(v, e); error_de_tipos(v,e); }
+			if(isChar(e)) { variablec(v, e); }
+			else if(isFloat(v) && isInt(e)){ printCastingFloat(RESULT, v, e); }
+			else if(TablaSimbolos.contieneArray(v) && TablaSimbolos.contieneArray(e) && TablaSimbolos.getLongitudArray(v).equals(TablaSimbolos.getLongitudArray(e)) ){								// variable = expresión (ambos siendo arrays)
+				if(!TablaSimbolos.getTipoArray(v).equals(TablaSimbolos.getTipoArray(e))) { error_de_tipos(v, e); }
+				//variable(v, e); // v = e;
+				RESULT = crearTemporal();
+				for(int i = 0; i < Integer.parseInt(TablaSimbolos.getLongitudArray(v)); ++i){
+					/*TablaSimbolos.insertarValorArray(v, Integer.toString(i), arrayAux.get(i));
+					System.out.println("\t"+RESULT+ "["+i+"] = "+arrayAux.get(i)+";");*/
+					System.out.println("\t"+RESULT+ " = "+ e + "["+i+"];");					// $tX = e[i];
+					System.out.println("\t"+ v + "["+i+"] = "+ RESULT +";");				// v[i] = $tX;
+				}
+			}
+			else {
+			//System.out.println("-------------------------------------------------- HE LLEGADO AQUI (en expresion) aaaaaaaaaaaaaaaaaaaaa");
+				variable(v, e);
+				TablaSimbolos.insertarVariable(v, TablaSimbolos.getTipo(v), e);
+				//System.out.println("INSERTO: "+TablaSimbolos.getTipo(v)+ " " +v+" = "+e);
+			}
+			RESULT = v;
+	:}
+	|   VAR:v AC NUM_ENTERO:pos CC ASIG exp:e {:    
+			if(!TablaSimbolos.contieneArray(v)) { error_no_declarado(v); }
+			Arr aux = TablaSimbolos.getArray(v);
+			checkRango(aux.getThisLongitud(), pos);
+			//System.out.println("................ AQUI LLEGUE: "+v + ", idx: "+pos+ ", tipoAux: "+tipoAux+", exp: "+e);
+			if(TablaSimbolos.getTipoArray(v).equals("float") && isInt(e)){
+				RESULT = crearTemporal();
+				System.out.println("\t" + RESULT + " = (float) "+ e + ";");
+				e = RESULT;
+			} 
+			if(TablaSimbolos.getTipoArray(v).equals("char") && isChar(e)){
+				TablaSimbolos.insertarValorArray(v, pos, Integer.toString( (int) e.charAt(1) ));
+				variableArray(v, pos, Integer.toString( (int) e.charAt(1) ));
+			}
+			else {
+				//System.out.println("................ AQUI LLEGUE: "+v + ", idx: "+pos+ ", tipoAux: "+tipoAux+", exp: "+e);
+				TablaSimbolos.insertarValorArray(v, pos, e);
+				variableArray(v, pos, e);
+			}
+			
+			//TablaSimbolos.printTabla();
+			//TablaSimbolos.imprimirListaArrays();
+
+			//System.out.println("................ AQUI LLEGUE: "+v + ", idx: "+l);
+			// DUDA --------> Por qué en mat2.plx, en L5, L7 y L9, se checkean los indices 1, 2 y 3 en vez de 2, 3 y 1 :. REPUESTA RABBIT: No importa el orden
+			//Lo que importa es que se haga 
+			
+	:}
+	|   VAR:v AC VAR:vi CC ASIG exp:e {:                                     // TENGO QUE FIJARME EN a[i] -> corregir y guardar nºs en la TablaSimbolos correctamente
+			if(!TablaSimbolos.contieneArray(v)) { error_no_declarado(v); }
+			Arr aux = TablaSimbolos.getArray(v);
+			// System.out.println("................ AQUI LLEGUE: "+v + ", idx: "+vi + ", exp: "+e);
+			checkRango(aux.getThisLongitud(), vi);
+			TablaSimbolos.insertarArray(tipoAux, v, vi);
+			//TablaSimbolos.printTabla();
+
+			//System.out.println("................ AQUI LLEGUE: "+v + ", idx: "+l);
+			// DUDA --------> Por qué en mat2.plx, en L5, L7 y L9, se checkean los indices 1, 2 y 3 en vez de 2, 3 y 1 :. REPUESTA RABBIT: No importa el orden
+			// Lo que importa es que se haga 
+			if(isArray(e)){
+				int indiceEspacio = e.indexOf(" ");
+
+				String variable = e.substring(0, indiceEspacio);
+				String indiceArray = e.substring(indiceEspacio+1);
+				e = variable + "["+indiceArray+"]";
+			}
+			variableArray(v, vi, e);
+	:}
+	|   VAR:v AC exp:ei CC ASIG exp:e {: 
+			if(!TablaSimbolos.contieneArray(v)) { error_no_declarado(v); }
+			Arr aux = TablaSimbolos.getArray(v);
+			//System.out.println("................ AQUI LLEGUE -(((( CON EXP)))): "+v + ", idx: "+ei + ", = "+e);
+			checkRango(aux.getThisLongitud(), ei);
+			if(TablaSimbolos.getTipoArray(v).equals("char") && isChar(e)){
+				// System.out.println(ei.charAt(0).equals("$"));
+				if(ei.charAt(0) != '$'){
+					TablaSimbolos.insertarValorArray(v, ei, Integer.toString( (int) e.charAt(1) ));
+				}
+				variableArray(v, ei, Integer.toString( (int) e.charAt(1) ));
+			}
+			else {
+				TablaSimbolos.insertarArray(tipoAux, v, ei);
+			}
+			//TablaSimbolos.printTabla();
+
+			//System.out.println("................ AQUI LLEGUE: "+v + ", idx: "+l);
+			// DUDA --------> Por qué en mat2.plx, en L5, L7 y L9, se checkean los indices 1, 2 y 3 en vez de 2, 3 y 1 :. REPUESTA RABBIT: No importa el orden
+			// Lo que importa es que se haga 
+			variableArray(v, ei, e);
+
+	:}
+	|   VAR:v AC NUM_ENTERO:l CC {: // print(a[10])
+			RESULT = v +" "+l;
+	:}
+	|   VAR:v AC VAR:vi CC {: // print(a[10])
+			RESULT = v +" "+TablaSimbolos.getValor(vi);
+	:}
+	|	VAR:v ASIG ALL exp_lista CLL {:
+			if(!TablaSimbolos.contieneArray(v)) error_no_declarado(v);
+			if(Integer.parseInt(TablaSimbolos.getLongitudArray(v)) < arrayAux.size()) { error_de_dimensiones_arrayAux(v,arrayAux); }
+			//TablaSimbolos.imprimirListaArrays();
+			//System.out.println("El tipo de "+v+" es: "+TablaSimbolos.getTipoArray(v));
+			//System.out.println("--------------------- El array es: "+arrayAux);
+			for(int i = 0; i < arrayAux.size(); ++i){
+				if(TablaSimbolos.getTipoArray(v).equals("int") && isFloat(arrayAux.get(i))) { tipoAux = "int"; error_de_tipos(v, arrayAux.get(i)); }
+				if(TablaSimbolos.getTipoArray(v).equals("float") && isInt(arrayAux.get(i))) { tipoAux = "float"; error_de_tipos(v, arrayAux.get(i)); }
+			}
+			varArrayAux = v;
+			//System.out.println("--------------------- El array es: "+arrayAux);
+			RESULT = crearTemporal();
+			for(int i = 0; i < arrayAux.size(); ++i){
+				if(isChar(arrayAux.get(i))){
+					TablaSimbolos.insertarValorArray(v, Integer.toString(i), Integer.toString( (int) (arrayAux.get(i)).charAt(1) )  );
+					System.out.println("\t"+RESULT+ "["+i+"] = "+Integer.toString( (int) (arrayAux.get(i)).charAt(1) )+";");
+				}
+				else{
+					TablaSimbolos.insertarValorArray(v, Integer.toString(i), arrayAux.get(i));
+					System.out.println("\t"+RESULT+ "["+i+"] = "+arrayAux.get(i)+";");
+				}
+				
+			}
+			String auxTemp = RESULT; // $t0
+			RESULT = crearTemporal(); // $t1
+			for(int i = 0; i < arrayAux.size(); ++i){
+				String auxAsig = auxTemp+ "["+i+"]";
+				variable(RESULT, auxAsig);								// $tX[Y]
+				System.out.println("\t"+v+ "["+i+"] = "+RESULT+";");
+			}
+			//TablaSimbolos.imprimirListaArrays();
+			// System.out.println("------- Entro en (3) insertando "+ e + "en "+v);
+	:}
+	|	VAR:v PUNTO LENGTH {:					// v.length
+			if(TablaSimbolos.contieneArray(v) && TablaSimbolos.getTipoArray(v).equals("char")){
+				RESULT = "$"+v+"_length";
+			}
+	:}
+	|	AP exp:e CP {:					// (expresión)
+			RESULT = e;
+	:}
+	|	NUM_ENTERO:n {:						// número INT (2, 444, ...)
+			RESULT = n; 
+	:}
+	|	NUM_FLOAT:n {:						// número FLOAT (1.234, 3.1415, ...)
+			RESULT = n; 
+	:}
+	|	valor_booleano:v {:
+			//System.out.println("BBBBBBBBBB");
+			expAux = v;
+			RESULT = v;
+	:}
+	|	VAR_BOOLEAN:v {:
+
+			RESULT = v;
+	:}
+	|	VAR:v {:						// variable
+			//TablaSimbolos.insertarVariable(v, tipoAux, null);
+			if(!TablaSimbolos.contieneVariable(v) && !TablaSimbolos.contieneArray(v) ) { error_no_declarado(v); }
+			RESULT = v; 
+	:}
+	|	COMILLAS_SIMPLES UNICODE:u COMILLAS_SIMPLES {:						// símbolo unicode
+			RESULT = "\'"+u+"\'"; 
+	:}
+	|	CARACTER:c {:
+			RESULT = c;
+	:}
+	| casting:c exp:v {:
+		//System.out.println("Entro aqui con casting de "+ c + " y la expresion: "+v);
+		 //TablaSimbolos.printTabla();
+		tipoAux = c;
+		//System.out.println("SIGO aqui con casting de "+ c + " y la expresion: "+v);
+		if(TablaSimbolos.contieneVariable(v) && c.equals(TablaSimbolos.getTipo(v))) { isCasting = false; RESULT = v;} // char2 y char11???
+		else if(TablaSimbolos.contieneVariable(v) && !c.equals(TablaSimbolos.getTipo(v))) {isCasting = true;  RESULT = v; }
+		else if(c.equals("float") && isInt(v)) { isCasting = true; RESULT = v; }
+		else if(c.equals("int") && isChar(v) && isUnicode(v)) {
+			v = Integer.toString(unicodeANumero(v.substring(1, v.length()-1)));
+			// NO pongo true isCasting !!!
+		} 
+		else if(c.equals("int") && isChar(v)) { v = Integer.toString( (int)v.charAt(1) ); RESULT = v; }// posiblemente falte añadir casting (char) exp ?? -> otro else if
+		else if(c.equals("int") && isArray(v)){
+			int indiceEspacio = v.indexOf(" ");
+
+			String variable = v.substring(0, indiceEspacio);
+			String indiceArray = v.substring(indiceEspacio+1);
+			RESULT = crearTemporal();
+			TablaSimbolos.insertarVariable(RESULT, TablaSimbolos.getTipoArray(variable), v);
+			variable(RESULT, v);
+			String tempAux = RESULT;
+			RESULT = crearTemporal();
+			TablaSimbolos.insertarVariable(RESULT, "float", null);
+			System.out.println("\t" + RESULT + " = (float) "+ tempAux + ";");
+			//System.out.println("-------------- ISCASTING = "+isCasting + " y devuelvo RESULT: "+v);
+		}
+		else if(c.equals("char")){
+			RESULT = v;
+			System.out.println("-------------- ISCASTING = "+isCasting + " y devuelvo RESULT: "+v);
+			TablaSimbolos.printTabla();
+		}
+		//else if(c.equals(char))
+		
+		
+		
+	:}  %prec CASTING_PREC
+	|	  /* EPSILON */
+	;
+
+/*
+			******************************************
+			************ RESUMEN DEL SAFE ************
+			******************************************
+
+	Esta copia tenía un 92.5 de nota.
+	
+	Tengo hecho arrays de enteros hecho (print, float, char e impresiones)
+
+	Me falta hacer strings y ya habré acabado
+
+    --------------------------------------------------------------
+
+    EN el examen tengo boolinit0.plx, ya puedo continuar.
+
+
+
+
+*/
+
+
+
+
