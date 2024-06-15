@@ -6,6 +6,9 @@ Para ser más exactos, requiere la traducción de este lenguaje a un lenguaje in
 Aquí hay una pequeña representación del esquema de compilación en Java:
 ![Logo](Miscellaneous/PLXC_Diagrama.png)
 
+No es el proyecto del que esté más orgulloso, tiene bastante por mejorar, pero no viene mal tenerlo guardado en un repositorio de github
+por si en algún futuro quiero retomarlo, para tener un refresco o una base por la que empezar.
+
 ## El código fuente
 El lenguaje fuente tiene una sintaxis similar a C o JAVA y consiste en una lista de sentencias. El lenguaje BASE
 no requiere la declaración de variables, ya que considera que todas las variables, y considera que todas las
