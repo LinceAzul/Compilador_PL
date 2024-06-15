@@ -7,15 +7,27 @@ Aquí hay una pequeña representación del esquema de compilación en Java:
 ![Logo](Miscellaneous/PLXC_Diagrama.png)
 
 ## El código fuente
-El lenguaje fuente tiene una sintaxis similar a C o JAVA y consiste en una lista de sentencias. El lenguaje
+El lenguaje fuente tiene una sintaxis similar a C o JAVA y consiste en una lista de sentencias. El lenguaje BASE
 no requiere la declaración de variables, ya que considera que todas las variables, y considera que todas las
-variables están definidas y tienen asignado un valor inicial 0. El lenguaje puede contener expresiones
+variables están definidas y tienen asignado un valor inicial 0. El lenguaje BASE puede contener expresiones
 aritméticas simples (suma, resta, multiplicación y división); expresiones de asignación; y expresiones
 relacionales (menor, mayor, igual, etc.); así como sentencias de control if, if-else, while, do-while y for y
 una sentencia print de salida. Por ejemplo, el siguiente es un programa válido en PL:
 
 Desde el punto de vista léxico, las reglas para componer los identificadores, las constantes numéricas, y
 demás elementos del lenguaje, son las mismas que en el lenguaje C o JAVA
+
+Ahora, en describiremos la extensión que se subirá a este repositorio
+
+### La extensión
+La extensión consiste en la implementación mediante JFlex y Cup de una extensión del compilador del
+lenguaje PLX. La aportación de esta extensión es el uso de variables de tipo boolean, la introducción de
+nuevos operadores condicionales y algunas nuevas sentencias de control. Se suponen previamente
+implementadas la funcionalidad básica del lenguaje PLX y sus sentencias de control. El código intermedio
+generado por ambos lenguajes es el mismo y el esquema de compilación también.
+
+Se incluyen varios elementos, entre los que están la asignación de varios tipos (int, float, boolean, char y string) casting a esos tipos,
+operaciones entre esos tipos, uso de arrays incluyendo declaraciones y asignaciones varias,.
 
 ## El código objeto (tres direcciones)
 
@@ -50,12 +62,9 @@ El conjunto de instrucciones del código ensamblador, y su semántica son las si
 | `if (a < b) goto l ;`  | Salta a la posición marcada con la sentencia “label l”, si y solo si a es menor que b     |
 | `l:`                  | Indica una posición de salto                                                              |
 | `label l ;`           | Indica una posición de salto (forma sintáctica equivalente a la anterior)                  |
-| `function f ;`        | Indica una posición de salto para comienzo de una función                                  |
 | `end f ;`             | Indica el final del código de una función                                                  |
 | `param n = x;`        | Indica que x debe usarse como parámetro n-ésimo en la llamada a la próxima función         |
 | `x = param n ;`       | Asigna a la variable x el valor del parámetro n-ésimo definido antes de la llamada a la función |
-| `call f ;`            | Salto incondicional al comienzo de la función f. Al alcanzar la sentencia return, el control vuelve a la instrucción siguiente a esta |
-| `gosub l ;`           | Salto incondicional a la etiqueta l. Al alcanzar la sentencia return, el control vuelve a la instrucción siguiente a esta |
 | `return ;`            | Salta a la posición inmediatamente siguiente a la de la instrucción que hizo la llamada (call f) o (gosub l) |
 | `write a ;`           | Imprime el valor de a (ya sea entero o real)                                               |
 | `writec a ;`          | Imprime el carácter Unicode correspondiente al número a                                     |
