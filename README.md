@@ -1,4 +1,4 @@
-# Compilador_PL
+# Compilador_PLXC
 Este repositorio sirve para guardar la realización de un proyecto universitario que consiste en la construcción de un compilador con JFLex y CUP de un lenguaje de programción similar a C.
 
 Para ser más exactos, requiere la traducción de este lenguaje a un lenguaje intermedio definido mediante instrucciones de tres direcciones, que finalmente se interpretará con otro programa que simule su ejecución.
